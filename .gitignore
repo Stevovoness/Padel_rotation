@@ -1,0 +1,12 @@
+# PyInstaller build output - rebuild with the command in the README
+build/
+dist/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Generated schedules, and the local list of names/venues you have used
+*.pdf
+padel_history.json
