@@ -12,6 +12,7 @@ The scheduling and PDF work all lives in padel.py next door.
 
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import queue
@@ -19,7 +20,7 @@ import re
 import sys
 import threading
 import tkinter as tk
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -40,6 +41,16 @@ def app_dir() -> Path:
     return Path(__file__).resolve().parent
 
 
+def resource_path(name: str) -> Path:
+    """A file shipped with the app.
+
+    A one-file PyInstaller build unpacks its data into sys._MEIPASS, so bundled
+    files live there rather than next to the executable.
+    """
+    base = Path(getattr(sys, "_MEIPASS", "")) if getattr(sys, "frozen", False) else None
+    return (base or Path(__file__).resolve().parent) / name
+
+
 HISTORY_PATH = app_dir() / "padel_history.json"
 MAX_HISTORY = 200
 MAX_SUGGESTIONS = 6
@@ -50,6 +61,25 @@ INK = "#0D1F1B"
 MUTED = "#5E706B"
 DANGER = "#B42318"
 PAPER = "#F1F5F2"
+LINE = "#C9D6D1"
+
+
+def apply_icon(window: tk.Tk) -> None:
+    """Put the racket on the title bar, the taskbar and the alt-tab list."""
+    ico = resource_path("assets/icon.ico")
+    if ico.is_file():
+        try:
+            window.iconbitmap(default=str(ico))
+            return
+        except tk.TclError:
+            pass  # not Windows, or a Tk that dislikes the file - try the PNG
+    png = resource_path("assets/icon.png")
+    if png.is_file():
+        try:
+            window._icon = tk.PhotoImage(file=str(png))  # a reference has to survive
+            window.iconphoto(True, window._icon)
+        except tk.TclError:
+            pass
 
 
 # --------------------------------------------------------------------------
@@ -264,6 +294,314 @@ class AutocompleteEntry(ttk.Entry):
 
 
 # --------------------------------------------------------------------------
+# picking a date and a time
+# --------------------------------------------------------------------------
+
+DATE_FORMAT = "%a %d %b"  # what lands in the box, and on the PDF
+DATE_READS = (
+    "%a %d %b %Y", "%a %d %b", "%d %b %Y", "%d %b", "%d %B %Y", "%d %B",
+    "%Y-%m-%d", "%d/%m/%Y", "%d/%m",
+)
+
+
+def parse_date_text(text: str) -> date | None:
+    """Read back whatever is in the date box, so the calendar opens on it."""
+    raw = " ".join(text.replace(",", " ").split())
+    for fmt in DATE_READS:
+        try:
+            parsed = datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+        return parsed.date() if "%Y" in fmt else parsed.date().replace(year=date.today().year)
+    return None
+
+
+def parse_time_text(text: str) -> tuple[int, int] | None:
+    raw = text.strip().lower().replace(" ", "").replace(".", "")
+    for fmt in ("%H:%M", "%I:%M%p", "%I%p", "%H%M"):
+        try:
+            parsed = datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+        return parsed.hour, parsed.minute
+    return None
+
+
+class Popover(tk.Toplevel):
+    """A borderless panel hanging under a field, closed by Escape or a click away."""
+
+    def __init__(self, anchor: tk.Widget):
+        super().__init__(anchor)
+        self.anchor = anchor
+        self.withdraw()
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.configure(bg=LINE)  # one pixel of padding shows as a hairline border
+        self.body = tk.Frame(self, bg="white")
+        self.body.pack(fill="both", expand=True, padx=1, pady=1)
+        self.bind("<Escape>", lambda _e: self.close())
+        self.bind("<MouseWheel>", lambda _e: "break")  # not the roster behind us
+        self.bind("<Button-1>", self._click, add="+")
+        # the grab below sends stray clicks here, but bind_all catches the ones
+        # a window manager delivers elsewhere
+        self.bind_all("<Button-1>", self._click, add="+")
+
+    def open_under(self, widget: tk.Widget):
+        self.update_idletasks()
+        width, height = self.winfo_reqwidth(), self.winfo_reqheight()
+        x = widget.winfo_rootx()
+        y = widget.winfo_rooty() + widget.winfo_height() + 2
+        x = max(0, min(x, self.winfo_screenwidth() - width))
+        if y + height > self.winfo_screenheight():  # no room below, sit above instead
+            y = max(0, widget.winfo_rooty() - height - 2)
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.deiconify()
+        self.lift()
+        self.grab_set()  # everything the app sees now arrives here
+        self.focus_set()
+
+    def _click(self, event):
+        # with the grab on, clicks anywhere in the app land here; only the ones
+        # outside our own rectangle mean "close"
+        if not self.winfo_exists():
+            return
+        inside = (
+            0 <= event.x_root - self.winfo_rootx() < self.winfo_width()
+            and 0 <= event.y_root - self.winfo_rooty() < self.winfo_height()
+        )
+        if not inside:
+            self.close()
+
+    def close(self):
+        try:
+            self.unbind_all("<Button-1>")
+            self.grab_release()
+            self.destroy()
+        except tk.TclError:
+            pass
+
+
+class CalendarPopover(Popover):
+    """A month at a time, click a day."""
+
+    def __init__(self, anchor: tk.Widget, selected: date, on_pick):
+        super().__init__(anchor)
+        self.selected = selected
+        self.on_pick = on_pick
+        self.shown = selected.replace(day=1)
+        self.cells: list[tk.Label] = []
+
+        head = tk.Frame(self.body, bg=DEEP)
+        head.pack(fill="x")
+        self._arrow(head, "‹", -1).pack(side="left", padx=(6, 0), pady=4)
+        self.title_label = tk.Label(
+            head, bg=DEEP, fg="white", font=("Segoe UI", 10, "bold")
+        )
+        self.title_label.pack(side="left", expand=True, pady=4)
+        self._arrow(head, "›", 1).pack(side="right", padx=(0, 6), pady=4)
+
+        grid = tk.Frame(self.body, bg="white", padx=6, pady=4)
+        grid.pack()
+        for col, day in enumerate(("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")):
+            tk.Label(
+                grid, text=day, bg="white", fg=MUTED, font=("Segoe UI", 8), width=3
+            ).grid(row=0, column=col, pady=(0, 2))
+        for index in range(42):
+            cell = tk.Label(grid, bg="white", width=3, font=("Segoe UI", 9), cursor="hand2")
+            cell.grid(row=index // 7 + 1, column=index % 7, padx=1, pady=1)
+            cell.bind("<Button-1>", lambda _e, i=index: self._pick(i))
+            cell.bind("<Enter>", lambda _e, i=index: self._hover(i, True))
+            cell.bind("<Leave>", lambda _e, i=index: self._hover(i, False))
+            self.cells.append(cell)
+
+        foot = tk.Frame(self.body, bg="white")
+        foot.pack(fill="x", padx=8, pady=(0, 6))
+        today = tk.Label(
+            foot, text="Today", bg="white", fg=DEEP, font=("Segoe UI", 9, "underline"),
+            cursor="hand2",
+        )
+        today.pack(side="left")
+        today.bind("<Button-1>", lambda _e: self._choose(date.today()))
+
+        self._draw()
+        self.open_under(anchor)
+
+    def _arrow(self, parent, glyph: str, step: int) -> tk.Label:
+        label = tk.Label(
+            parent, text=glyph, bg=DEEP, fg="white", font=("Segoe UI", 12), cursor="hand2",
+            padx=6,
+        )
+        label.bind("<Button-1>", lambda _e: self._shift(step))
+        return label
+
+    def _shift(self, months: int):
+        month = self.shown.month - 1 + months
+        self.shown = date(self.shown.year + month // 12, month % 12 + 1, 1)
+        self._draw()
+
+    def _days(self) -> list[date]:
+        first = self.shown - timedelta(days=self.shown.weekday())  # back to the Monday
+        return [first + timedelta(days=offset) for offset in range(42)]
+
+    def _draw(self):
+        self.title_label.configure(
+            text=f"{calendar.month_name[self.shown.month]} {self.shown.year}"
+        )
+        today = date.today()
+        for cell, day in zip(self.cells, self._days()):
+            cell.day = day
+            if day == self.selected:
+                colours = dict(bg=DEEP, fg="white")
+            elif day == today:
+                colours = dict(bg=BALL, fg=INK)
+            elif day.month != self.shown.month:
+                colours = dict(bg="white", fg="#B4C2BD")
+            else:
+                colours = dict(bg="white", fg=INK)
+            cell.rest = colours
+            cell.configure(text=str(day.day), **colours)
+
+    def _hover(self, index: int, entering: bool):
+        cell = self.cells[index]
+        if entering and cell.rest["bg"] == "white":
+            cell.configure(bg=PAPER)
+        elif not entering:
+            cell.configure(**cell.rest)
+
+    def _pick(self, index: int):
+        self._choose(self.cells[index].day)
+
+    def _choose(self, day: date):
+        self.on_pick(day)
+        self.close()
+
+
+class TimePopover(Popover):
+    """Two wheels - hours, and minutes in fives - that you spin or click."""
+
+    STEP = 5
+    VISIBLE = 5
+
+    def __init__(self, anchor: tk.Widget, hour: int, minute: int, on_pick):
+        super().__init__(anchor)
+        self.on_pick = on_pick
+
+        wheels = tk.Frame(self.body, bg="white", padx=10, pady=8)
+        wheels.pack()
+        self.hours = self._wheel(wheels, [f"{h:02d}" for h in range(24)])
+        self.hours.pack(side="left")
+        tk.Label(wheels, text=":", bg="white", fg=INK, font=("Segoe UI", 14, "bold")).pack(
+            side="left", padx=4
+        )
+        self.minutes = self._wheel(
+            wheels, [f"{m:02d}" for m in range(0, 60, self.STEP)]
+        )
+        self.minutes.pack(side="left")
+
+        self._select(self.hours, hour)
+        self._select(self.minutes, round(minute / self.STEP) % (60 // self.STEP))
+
+        foot = tk.Frame(self.body, bg="white")
+        foot.pack(fill="x", padx=10, pady=(0, 8))
+        now = tk.Label(
+            foot, text="Now", bg="white", fg=DEEP, font=("Segoe UI", 9, "underline"),
+            cursor="hand2",
+        )
+        now.pack(side="left")
+        now.bind("<Button-1>", lambda _e: self._set_now())
+        tk.Button(
+            foot, text="Done", command=self.close, bg=DEEP, fg="white", relief="flat",
+            activebackground="#12564C", activeforeground="white",
+            font=("Segoe UI", 9, "bold"), padx=12, cursor="hand2",
+        ).pack(side="right")
+
+        self.bind("<Return>", lambda _e: self.close())
+        self.open_under(anchor)
+
+    def _wheel(self, parent, values: list[str]) -> tk.Listbox:
+        box = tk.Listbox(
+            parent,
+            height=self.VISIBLE,
+            width=3,
+            exportselection=False,
+            activestyle="none",
+            highlightthickness=0,
+            borderwidth=1,
+            relief="solid",
+            justify="center",
+            font=("Segoe UI", 13),
+            selectbackground=DEEP,
+            selectforeground="white",
+        )
+        for value in values:
+            box.insert(tk.END, value)
+        # our own wheel handler, so the roster canvas behind us does not scroll too
+        box.bind("<MouseWheel>", lambda e, b=box: self._scroll(b, e))
+        box.bind("<<ListboxSelect>>", lambda _e: self._changed())
+        return box
+
+    def _scroll(self, box: tk.Listbox, event) -> str:
+        box.yview_scroll(-event.delta // 120, "units")
+        return "break"
+
+    def _select(self, box: tk.Listbox, index: int):
+        box.selection_clear(0, tk.END)
+        box.selection_set(index)
+        box.yview(max(0, index - self.VISIBLE // 2))  # keep the pick mid-wheel
+
+    def _value(self, box: tk.Listbox) -> int:
+        current = box.curselection()
+        return int(box.get(current[0])) if current else 0
+
+    def _changed(self):
+        self.on_pick(self._value(self.hours), self._value(self.minutes))
+
+    def _set_now(self):
+        now = datetime.now()
+        self._select(self.hours, now.hour)
+        self._select(self.minutes, round(now.minute / self.STEP) % (60 // self.STEP))
+        self._changed()
+
+
+class PickerField(ttk.Frame):
+    """A typed-in value with a button that opens a popover next to it."""
+
+    def __init__(self, master, textvariable: tk.StringVar, glyph: str, width: int):
+        super().__init__(master)
+        self.var = textvariable
+        self.entry = ttk.Entry(self, textvariable=textvariable, width=width)
+        self.entry.pack(side="left", fill="x", expand=True)
+        self.button = tk.Button(
+            self, text=glyph, command=self.open, bg="white", fg=DEEP, relief="solid",
+            activebackground=PAPER, activeforeground=DEEP, font=("Segoe UI", 8),
+            width=2, cursor="hand2", takefocus=False, borderwidth=1,
+            highlightthickness=0,
+        )
+        self.button.pack(side="left", padx=(3, 0))
+
+    def open(self):
+        raise NotImplementedError
+
+
+class DateField(PickerField):
+    def __init__(self, master, textvariable, width=16):
+        super().__init__(master, textvariable, "▾", width)
+
+    def open(self):
+        selected = parse_date_text(self.var.get()) or date.today()
+        CalendarPopover(self, selected, lambda day: self.var.set(f"{day:{DATE_FORMAT}}"))
+
+
+class TimeField(PickerField):
+    def __init__(self, master, textvariable, width=8):
+        super().__init__(master, textvariable, "▾", width)
+
+    def open(self):
+        hour, minute = parse_time_text(self.var.get()) or (datetime.now().hour, 0)
+        TimePopover(self, hour, minute, lambda h, m: self.var.set(f"{h:02d}:{m:02d}"))
+
+
+# --------------------------------------------------------------------------
 # the window
 # --------------------------------------------------------------------------
 
@@ -322,6 +660,7 @@ class PadelApp:
         root = self.root
         root.title("Padel Rotation Scheduler")
         root.configure(bg=PAPER)
+        apply_icon(root)
         # everything ttk draws scales with the screen; our own pixel sizes have
         # to follow suit or the window runs off the bottom of a high-dpi display
         self.scale = max(1.0, root.winfo_fpixels("1i") / 96.0)
@@ -371,7 +710,7 @@ class PadelApp:
         ).grid(row=0, column=1, columnspan=5, sticky="ew", padx=(8, 0), pady=4)
 
         ttk.Label(details, text="Date").grid(row=1, column=0, sticky="w", pady=4)
-        ttk.Entry(details, textvariable=self.date_text, width=18).grid(
+        DateField(details, self.date_text).grid(
             row=1, column=1, sticky="ew", padx=(8, 14), pady=4
         )
         ttk.Label(details, text="Heading").grid(row=1, column=2, sticky="w", pady=4)
@@ -380,7 +719,7 @@ class PadelApp:
         )
 
         ttk.Label(details, text="Start").grid(row=2, column=0, sticky="w", pady=4)
-        ttk.Entry(details, textvariable=self.start_text, width=10).grid(
+        TimeField(details, self.start_text).grid(
             row=2, column=1, sticky="w", padx=(8, 14), pady=4
         )
         ttk.Label(details, text="Minutes").grid(row=2, column=2, sticky="w", pady=4)
@@ -696,6 +1035,9 @@ def main():
         import ctypes
 
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        # our own taskbar identity, so running from source shows our icon and
+        # not Python's
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("barcor.padel.rotation")
     except Exception:  # noqa: BLE001 - not windows, or an older one
         pass
 

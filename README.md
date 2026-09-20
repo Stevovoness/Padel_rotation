@@ -32,8 +32,11 @@ python padel.py --help       # the command line
 
 Fill in where and when you are playing, set the courts and the number of
 players, then type a name in each box. Names and venues you have used before
-are suggested as you type. A line under the roster tells you what you are about
-to get, and a warning stops you if the roster cannot fill the courts:
+are suggested as you type. The **Date** box has a calendar next to it and
+**Start** a pair of wheels for the hour and the minutes, if you would rather
+pick than type — both boxes still take typing (`Sat 20 Sep`, `7:30pm`). A line
+under the roster tells you what you are about to get, and a warning stops you
+if the roster cannot fill the courts:
 
 ```
 2 courts need at least 8 players, got 7 - add 1 more.
@@ -87,7 +90,8 @@ Eight players on two courts means nobody ever rests.
 ```
 pip install pyinstaller
 pyinstaller --noconfirm --clean --onefile --windowed --name "Padel Scheduler" \
-            --hidden-import padel padel_gui.py
+            --icon assets/icon.ico --add-data "assets/icon.ico;assets" \
+            --add-data "assets/icon.png;assets" --hidden-import padel padel_gui.py
 ```
 
 The binary lands in `dist/`; move it to the project root to replace the one in
@@ -100,4 +104,5 @@ this repo. It is committed here so you can download and run it without Python
 |---|---|
 | `padel.py` | scheduling and PDF rendering, plus the command line |
 | `padel_gui.py` | the tkinter window |
+| `assets/` | the app icon: `icon.ico` for Windows, `icon.png` elsewhere, `icon-source.png` as drawn |
 | `Run from source.bat` | Windows launcher for the source version |
