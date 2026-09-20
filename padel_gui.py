@@ -616,6 +616,16 @@ def default_dir() -> str:
     return str(desktop if desktop.is_dir() else Path.home())
 
 
+def usable_dir(remembered: str) -> str:
+    """Last time's folder, unless it has since gone (a drive, a synced folder)."""
+    try:
+        if remembered and Path(remembered).is_dir():
+            return remembered
+    except OSError:
+        pass
+    return default_dir()
+
+
 class PadelApp:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -629,6 +639,8 @@ class PadelApp:
         last = self.history.get("last", {})
         remembered = [n for n in last.get("players", []) if isinstance(n, str)]
         roster = remembered or list(padel.DEFAULT_PLAYERS)
+        saved = last.get("save_dir")
+        self.save_dir = saved if isinstance(saved, str) else ""
 
         self.location = tk.StringVar(value=last.get("location", ""))
         self.date_text = tk.StringVar(value=last.get("date_text") or f"{datetime.now():%a %d %b}")
@@ -966,11 +978,12 @@ class PadelApp:
             title="Save the rotation",
             defaultextension=".pdf",
             filetypes=[("PDF", "*.pdf")],
-            initialdir=default_dir(),
+            initialdir=usable_dir(self.save_dir),
             initialfile=f"padel-{stamp}.pdf",
         )
         if not path:
             return
+        self._remember_save_dir(path)
 
         self.busy = True
         self.generate_button.configure(state="disabled", text="Generating…", bg="#9AA8A3")
@@ -1014,6 +1027,12 @@ class PadelApp:
         except OSError:
             pass
 
+    def _remember_save_dir(self, path: str):
+        """Written as soon as the folder is chosen, so a failed run still learns it."""
+        self.save_dir = str(Path(path).parent)
+        self.history.setdefault("last", {})["save_dir"] = self.save_dir
+        save_history(self.history)
+
     def _save_history(self, session: padel.Session):
         self.history["players"] = remember(self.history["players"], session.players)
         if session.location:
@@ -1026,6 +1045,7 @@ class PadelApp:
             "courts": session.courts,
             "minutes": session.minutes,
             "start": self.start_text.get().strip(),
+            "save_dir": self.save_dir,
         }
         save_history(self.history)
 

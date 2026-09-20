@@ -42,7 +42,8 @@ if the roster cannot fill the courts:
 2 courts need at least 8 players, got 7 - add 1 more.
 ```
 
-Click **Generate PDF**, choose where to save it, and it opens.
+Click **Generate PDF**, choose where to save it, and it opens. The save box
+opens on the folder you used last time, falling back to the desktop.
 
 Settings are remembered in `padel_history.json` next to the app.
 
