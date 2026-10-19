@@ -73,23 +73,27 @@ export function tokensFromItems(items: TextItem[]): string[] {
     run = [];
   };
 
-  for (const item of items) {
-    const s = item.str.trim();
-    if (!s) continue;
+  const live = items.map((i) => ({ s: i.str.trim(), y: i.y })).filter((i) => i.s);
+  live.forEach((item, k) => {
+    const { s } = item;
     const spaced = isSpacedOut(s);
     const sameLine = Math.abs(item.y - runY) < 0.5;
     if (run.length && sameLine && (spaced || s.length === 1)) {
       run.push(spaced ? s.replace(/ /g, "") : s);
-      continue;
+      return;
     }
     flush();
-    if (spaced) {
+    // a lone character opens a run only when spaced-out text follows on its
+    // line: the "1" of "1 COURT · ROTATION", not a grid cell next to a name
+    const next = live[k + 1];
+    const opensRun = s.length === 1 && next && Math.abs(next.y - item.y) < 0.5 && isSpacedOut(next.s);
+    if (spaced || opensRun) {
       run = [s.replace(/ /g, "")];
       runY = item.y;
     } else {
       tokens.push(s);
     }
-  }
+  });
   flush();
   return tokens;
 }
@@ -194,8 +198,24 @@ function resolve(name: string, roster: string[]): number {
   throw new ImportError(`Couldn't work out who "${name}" is on the schedule.`);
 }
 
+/**
+ * The glance column is narrow, so a long name can be cut short there while a
+ * round card still shows it whole. Use the whole one where there is one.
+ */
+function fillTruncated(roster: string[], rounds: RawRound[]): string[] {
+  const whole = new Set(
+    rounds.flatMap((r) => r.matches.flatMap((m) => [...m.teamA, ...m.teamB])).filter((n) => !n.endsWith(ELLIPSIS)),
+  );
+  return roster.map((name) => {
+    if (!name.endsWith(ELLIPSIS)) return name;
+    const stem = name.slice(0, -1).trim();
+    const hits = [...whole].filter((n) => n.startsWith(stem));
+    return hits.length === 1 ? hits[0] : name;
+  });
+}
+
 function readEyebrow(eyebrow: string): { dateText: string; location: string } {
-  if (/COURTS?\s+·\s+ROTATION$/.test(eyebrow)) return { dateText: "", location: "" };
+  if (/^\d+\s*COURTS?\s*·\s*ROTATION$/.test(eyebrow)) return { dateText: "", location: "" };
   const parts = eyebrow.split(/\s+·\s+/);
   if (parts.length >= 2) {
     return { dateText: titleCase(parts[0]), location: titleCase(parts.slice(1).join(" · ")) };
@@ -221,8 +241,8 @@ export function parsePdfText(pages: string[][]): { session: Session; rounds: Rou
   const [, title, minutesText] = FOOTER_RE.exec(footer)!;
   const minutes = Number(minutesText);
 
-  const roster = readRoster(body);
   const raw = readRounds(body.flat());
+  const roster = fillTruncated(readRoster(body), raw);
   if (!roster.length || !raw.length) throw new ImportError(NOT_OURS);
 
   const courts = Math.max(...raw.flatMap((r) => r.matches.map((m) => m.court)));

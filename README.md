@@ -17,10 +17,16 @@ out the rest of the morning.
 ## The web app
 
 `web/` is a phone-first version that runs entirely in the browser (Vite + Preact,
-no server), hosted on Vercel. Today it scores an existing rotation: pick a PDF
-made by this app and it rebuilds the schedule, takes each match's points
-(e.g. 14–11), keeps an Americano leaderboard and shares the results to WhatsApp.
-Tap a name to fix its spelling or bring on a substitute from a given round.
+no server), hosted on Vercel. It has the same form, rules and messages as the
+window, the same scheduler (ported line for line), and the PDF comes out in the
+same layout as `padel.py`'s: same text positions, page sizes and pixels. Generate
+hands the PDF to the phone's share sheet (WhatsApp), or downloads it on a desktop.
+Seeds only rebuild rotations made by the web app, not ones from the exe.
+
+It also keeps score for an Americano: after Generate, or after picking a PDF made
+by either app, it shows the schedule, takes each match's points (e.g. 14–11),
+keeps a leaderboard and shares the results to WhatsApp. Tap a name to fix its
+spelling or bring on a substitute from a given round.
 
 Ranking: total points, then matches won, then point difference. When people have
 played different numbers of games it ranks per game instead. A draw counts as half a win.

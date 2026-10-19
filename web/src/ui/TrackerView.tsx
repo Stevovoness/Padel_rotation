@@ -3,14 +3,24 @@ import { useState } from "preact/hooks";
 import { courtsText, scoreKey, slotLabel, type Score, type Tracker } from "../model";
 import { personAt } from "../scoring/people";
 import { scoredMatches } from "../scoring/leaderboard";
+import { pdfFile, sharePdf } from "../generate";
 import { Header } from "./Header";
 import { Leaderboard } from "./Leaderboard";
 import { RenameSheet, type RenameTarget } from "./RenameSheet";
 
 interface Props {
   tracker: Tracker;
+  /** what was just generated, e.g. "padel-club.pdf · 4 pages · seed 123" */
+  notice?: string;
   onChange: (next: Tracker) => void;
   onHome: () => void;
+}
+
+/** The PDF this app made for the session, with any corrected spellings. */
+function shareAgain(tracker: Tracker): void {
+  const players = tracker.people.map((segments) => segments[0].name);
+  const { file } = pdfFile({ ...tracker.session, players }, tracker.rounds, tracker.seed!);
+  void sharePdf(file);
 }
 
 type Tab = "schedule" | "board";
@@ -20,7 +30,7 @@ function readScore(text: string): number | null {
   return digits === "" ? null : Number(digits);
 }
 
-export function TrackerView({ tracker, onChange, onHome }: Props) {
+export function TrackerView({ tracker, notice, onChange, onHome }: Props) {
   const [tab, setTab] = useState<Tab>("schedule");
   const [renaming, setRenaming] = useState<RenameTarget | null>(null);
   const { session, rounds } = tracker;
@@ -58,6 +68,14 @@ export function TrackerView({ tracker, onChange, onHome }: Props) {
 
       {tab === "schedule" ? (
         <main class="body cards">
+          {tracker.seed !== undefined && (
+            <div class="pdf-bar">
+              <span class="muted small">{notice || `Seed ${tracker.seed}`}</span>
+              <button class="btn ghost small-btn" onClick={() => shareAgain(tracker)}>
+                Share PDF
+              </button>
+            </div>
+          )}
           <p class="muted progress">
             {done} of {totalMatches} matches scored · tap a name to fix it or bring on a sub
           </p>

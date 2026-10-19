@@ -55,19 +55,22 @@ export interface Tracker {
   scores: Record<string, Score>;
   /** people[slot] - the segments for that roster slot, oldest first */
   people: Segment[][];
+  /** set when this app made the rotation, so its PDF can be shared again */
+  seed?: number;
 }
 
 export function scoreKey(round: number, court: number): string {
   return `${round}-${court}`;
 }
 
-export function newTracker(session: Session, rounds: Round[]): Tracker {
+export function newTracker(session: Session, rounds: Round[], seed?: number): Tracker {
   return {
     version: 1,
     session,
     rounds,
     scores: {},
     people: session.players.map((name) => [{ name, fromRound: 1 }]),
+    ...(seed !== undefined ? { seed } : {}),
   };
 }
 
