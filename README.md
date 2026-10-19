@@ -14,6 +14,27 @@ out the rest of the morning.
 
 ![an example schedule](docs/example.png)
 
+## The web app
+
+`web/` is a phone-first version that runs entirely in the browser (Vite + Preact,
+no server), hosted on Vercel. Today it scores an existing rotation: pick a PDF
+made by this app and it rebuilds the schedule, takes each match's points
+(e.g. 14–11), keeps an Americano leaderboard and shares the results to WhatsApp.
+Tap a name to fix its spelling or bring on a substitute from a given round.
+
+Ranking: total points, then matches won, then point difference. When people have
+played different numbers of games it ranks per game instead. A draw counts as half a win.
+The current session is saved in the browser, so closing the tab loses nothing.
+
+```
+cd web
+npm install
+npm run dev       # http://localhost:5173
+npm test
+```
+
+Vercel: import the repo, set **Root Directory** to `web` (framework: Vite).
+
 ## Running it
 
 **The app:** double-click `Padel Scheduler.exe` (in this repo). Nothing to install.
