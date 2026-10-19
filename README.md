@@ -32,6 +32,15 @@ Ranking: total points, then matches won, then point difference. When people have
 played different numbers of games it ranks per game instead. A draw counts as half a win.
 The current session is saved in the browser, so closing the tab loses nothing.
 
+Scoring is shared through Supabase: every session gets a link (the **Invite**
+button), anyone with it can enter scores, and every phone updates live. Importing
+the same PDF on two phones lands on the same scoreboard. Edits are saved on the
+phone first and sync when there's signal. The database is set up by running
+`supabase/shared-scoring.sql` once in the Supabase SQL editor. Its tables are
+closed to the browser, which can only reach a session through functions that
+need its code. Sessions nobody touches for 30 days are deleted. The project URL
+and publishable key live in `web/.env`. Never put the secret key in this project.
+
 ```
 cd web
 npm install

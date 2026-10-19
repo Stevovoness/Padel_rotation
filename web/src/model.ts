@@ -57,7 +57,14 @@ export interface Tracker {
   people: Segment[][];
   /** set when this app made the rotation, so its PDF can be shared again */
   seed?: number;
+  /** the shared scoreboard this session syncs with */
+  shared?: { id: string; fingerprint: string };
+  /** when each score ("s:3-1") or roster slot ("p:4") last changed, ISO time */
+  stamps?: Record<string, string>;
 }
+
+export const scoreStamp = (round: number, court: number) => `s:${scoreKey(round, court)}`;
+export const peopleStamp = (slot: number) => `p:${slot}`;
 
 export function scoreKey(round: number, court: number): string {
   return `${round}-${court}`;

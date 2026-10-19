@@ -4,6 +4,7 @@ import { courtsText, scoreKey, slotLabel, type Score, type Tracker } from "../mo
 import { personAt } from "../scoring/people";
 import { scoredMatches } from "../scoring/leaderboard";
 import { pdfFile, sharePdf } from "../generate";
+import type { SyncStatus } from "../sync/engine";
 import { Header } from "./Header";
 import { Leaderboard } from "./Leaderboard";
 import { RenameSheet, type RenameTarget } from "./RenameSheet";
@@ -12,8 +13,36 @@ interface Props {
   tracker: Tracker;
   /** what was just generated, e.g. "padel-club.pdf · 4 pages · seed 123" */
   notice?: string;
+  status: SyncStatus;
+  /** the link that opens this scoreboard on another phone */
+  link: string | null;
   onChange: (next: Tracker) => void;
   onHome: () => void;
+}
+
+const STATUS_TEXT: Record<SyncStatus, string> = {
+  off: "",
+  live: "Live · scores shared",
+  syncing: "Saving…",
+  offline: "Offline · will sync",
+};
+
+async function invite(link: string, title: string, flash: (text: string) => void): Promise<void> {
+  const text = `🎾 Keep score with us for ${title}: tap to open the live scoreboard`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title, text, url: link });
+      return;
+    } catch (exc) {
+      if ((exc as DOMException).name === "AbortError") return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(link);
+    flash("Link copied - paste it into WhatsApp");
+  } catch {
+    window.open(`https://wa.me/?text=${encodeURIComponent(`${text} ${link}`)}`, "_blank");
+  }
 }
 
 /** The PDF this app made for the session, with any corrected spellings. */
@@ -30,8 +59,13 @@ function readScore(text: string): number | null {
   return digits === "" ? null : Number(digits);
 }
 
-export function TrackerView({ tracker, notice, onChange, onHome }: Props) {
+export function TrackerView({ tracker, notice, status, link, onChange, onHome }: Props) {
   const [tab, setTab] = useState<Tab>("schedule");
+  const [toast, setToast] = useState("");
+  const flash = (text: string) => {
+    setToast(text);
+    setTimeout(() => setToast(""), 2600);
+  };
   const [renaming, setRenaming] = useState<RenameTarget | null>(null);
   const { session, rounds } = tracker;
 
@@ -65,6 +99,16 @@ export function TrackerView({ tracker, notice, onChange, onHome }: Props) {
           Leaderboard
         </button>
       </nav>
+      {status !== "off" && link && (
+        <div class={`live-bar ${status}`}>
+          <span class="dot" />
+          <span class="live-text">{STATUS_TEXT[status]}</span>
+          <button class="btn ghost small-btn" onClick={() => void invite(link, session.title, flash)}>
+            Invite
+          </button>
+        </div>
+      )}
+      {toast && <div class="toast top-toast">{toast}</div>}
 
       {tab === "schedule" ? (
         <main class="body cards">

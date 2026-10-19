@@ -658,3 +658,50 @@ select {
   padding: 6px 14px;
   flex: none;
 }
+
+/* -- shared scoring ------------------------------------------------------ */
+
+.live-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 44px;
+  z-index: 2;
+}
+
+.live-bar .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--team-a);
+  flex: none;
+}
+
+.live-bar.syncing .dot {
+  background: var(--ball);
+  box-shadow: 0 0 0 1px var(--faint);
+}
+
+.live-bar.offline .dot {
+  background: var(--team-b);
+}
+
+.live-text {
+  flex: 1;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.top-toast {
+  position: fixed;
+  top: calc(12px + env(safe-area-inset-top));
+  left: 16px;
+  right: 16px;
+  z-index: 20;
+  max-width: 600px;
+  margin: 0 auto;
+}

@@ -11,6 +11,7 @@ import type { Tracker } from "./model";
 
 const CURRENT_KEY = "padel.current.v1";
 const HISTORY_KEY = "padel.history.v1";
+const QUEUE_KEY = "padel.queue.v1";
 
 export interface History {
   players: string[];
@@ -70,4 +71,14 @@ export function loadHistory(): History {
 
 export function saveHistory(history: History): void {
   write(HISTORY_KEY, history);
+}
+
+/** Edits waiting to reach the shared scoreboard (kept across reloads, for bad signal). */
+export function loadQueue<T>(): T[] {
+  const data = read(QUEUE_KEY);
+  return Array.isArray(data) ? (data as T[]) : [];
+}
+
+export function saveQueue<T>(queue: T[]): void {
+  write(QUEUE_KEY, queue);
 }

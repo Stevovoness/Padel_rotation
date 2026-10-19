@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@supabase/supabase-js": "2.117.2",
     "jspdf": "2.5.2",
     "pdfjs-dist": "4.10.38",
     "preact": "10.25.4"
