@@ -1,7 +1,9 @@
 import { MAX_COURTS, MAX_PLAYERS } from "../model";
 import type { History } from "../store";
 import { collect, summaryLine, todayIso, wantedPlayers, type FormState } from "../form/validate";
+import type { Step } from "../generate";
 import { Autocomplete } from "./Autocomplete";
+import { Progress } from "./Progress";
 
 // padel.py DEFAULT_PLAYERS: the roster the Windows app starts with
 const DEFAULT_PLAYERS = ["Reuben", "John", "Robyn", "Stephen", "Marco", "Tiaan", "Simone"];
@@ -33,7 +35,7 @@ interface Props {
   history: History;
   form: FormState;
   onForm: (next: FormState) => void;
-  busy: boolean;
+  progress: Step | null;
   onGenerate: () => void;
 }
 
@@ -64,7 +66,7 @@ function NumberField(props: {
   );
 }
 
-export function Form({ history, form, onForm, busy, onGenerate }: Props) {
+export function Form({ history, form, onForm, progress, onGenerate }: Props) {
   const set = <K extends keyof FormState>(key: K, value: FormState[K]) => onForm({ ...form, [key]: value });
 
   // name boxes follow the Players count, keeping whatever is already typed
@@ -158,9 +160,13 @@ export function Form({ history, form, onForm, busy, onGenerate }: Props) {
       {error && <p class="warn">⚠  {error}</p>}
 
       <footer class="dock">
-        <button class="btn primary wide" disabled={!!error || busy} onClick={onGenerate}>
-          {busy ? "Generating…" : "Generate PDF"}
-        </button>
+        {progress ? (
+          <Progress done={progress.done} label={progress.label} />
+        ) : (
+          <button class="btn primary wide" disabled={!!error} onClick={onGenerate}>
+            Generate PDF
+          </button>
+        )}
       </footer>
     </>
   );

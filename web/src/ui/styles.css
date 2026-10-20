@@ -705,3 +705,52 @@ select {
   max-width: 600px;
   margin: 0 auto;
 }
+
+/* -- progress ------------------------------------------------------------ */
+
+.progress-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px 12px;
+}
+
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 0.88rem;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.progress-pct {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--deep);
+}
+
+.progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--deep), var(--team-a));
+  transition: width 0.15s ease-out;
+}
+
+.pdf-bar.nudge {
+  background: #fbfde9;
+  border: 1.5px solid var(--ball);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.pdf-bar.nudge .muted {
+  color: var(--ink);
+}

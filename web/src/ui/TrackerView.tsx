@@ -13,6 +13,9 @@ interface Props {
   tracker: Tracker;
   /** what was just generated, e.g. "padel-club.pdf · 4 pages · seed 123" */
   notice?: string;
+  /** the phone wouldn't open the share sheet by itself: point at the button */
+  nudge?: boolean;
+  onShared?: () => void;
   status: SyncStatus;
   /** the link that opens this scoreboard on another phone */
   link: string | null;
@@ -59,7 +62,7 @@ function readScore(text: string): number | null {
   return digits === "" ? null : Number(digits);
 }
 
-export function TrackerView({ tracker, notice, status, link, onChange, onHome }: Props) {
+export function TrackerView({ tracker, notice, nudge, onShared, status, link, onChange, onHome }: Props) {
   const [tab, setTab] = useState<Tab>("schedule");
   const [toast, setToast] = useState("");
   const flash = (text: string) => {
@@ -113,9 +116,17 @@ export function TrackerView({ tracker, notice, status, link, onChange, onHome }:
       {tab === "schedule" ? (
         <main class="body cards">
           {tracker.seed !== undefined && (
-            <div class="pdf-bar">
-              <span class="muted small">{notice || `Seed ${tracker.seed}`}</span>
-              <button class="btn ghost small-btn" onClick={() => shareAgain(tracker)}>
+            <div class={nudge ? "pdf-bar nudge" : "pdf-bar"}>
+              <span class="muted small">
+                {nudge ? "Your PDF is ready - tap Share PDF to send it to the group." : notice || `Seed ${tracker.seed}`}
+              </span>
+              <button
+                class={nudge ? "btn primary small-btn" : "btn ghost small-btn"}
+                onClick={() => {
+                  shareAgain(tracker);
+                  onShared?.();
+                }}
+              >
                 Share PDF
               </button>
             </div>

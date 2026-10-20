@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { hasScores, newTracker, type Round, type Session, type Tracker } from "./model";
 import { clearCurrent, loadCurrent, loadHistory, saveCurrent, saveHistory, type History } from "./store";
 import { collect, remember, wantedPlayers, type FormState } from "./form/validate";
-import { makeRotation, sharePdf } from "./generate";
+import { makeRotation, sharePdf, type Step } from "./generate";
 import { Sync, type SyncStatus } from "./sync/engine";
 import { Home } from "./ui/Home";
 import { initialForm } from "./ui/Form";
@@ -25,7 +25,8 @@ export function App() {
   const [screen, setScreen] = useState<Screen>(() => (loadCurrent() ? "tracker" : "home"));
   const [history, setHistory] = useState<History>(() => loadHistory());
   const [form, setForm] = useState<FormState>(() => initialForm(loadHistory()));
-  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<Step | null>(null);
+  const [nudge, setNudge] = useState(false);
   const [notice, setNotice] = useState("");
   const [status, setStatus] = useState<SyncStatus>("off");
 
@@ -58,6 +59,7 @@ export function App() {
   const begin = (next: Tracker) => {
     put(next);
     setNotice("");
+    setNudge(false);
     go("tracker");
     void engine.share();
     engine.watch();
@@ -138,26 +140,28 @@ export function App() {
     saveHistory(next);
   };
 
-  const onGenerate = () => {
-    if (busy) return;
+  const onGenerate = async () => {
+    if (progress) return;
     const n = wantedPlayers(form) ?? form.names.length;
     const result = collect({ ...form, names: form.names.slice(0, n) });
     if ("error" in result) return;
     if (!confirmReplace()) return;
 
-    setBusy(true);
+    setProgress({ done: 0, label: "Starting…" });
     try {
-      // build and share in the same tap, so the phone allows the share sheet;
-      // the sheet stays open as long as the person likes, so nothing waits on it
-      const made = makeRotation(result.session, result.seed);
-      void sharePdf(made.file);
+      const made = await makeRotation(result.session, result.seed, setProgress);
+      // the share sheet stays open as long as the person likes, so nothing waits on it
+      void sharePdf(made.file).then((outcome) => {
+        // too long since the tap for this phone: they tap Share PDF instead
+        if (outcome === "blocked") setNudge(true);
+      });
       rememberSession(made.session);
       begin(newTracker(made.session, made.rounds, made.seed));
       setNotice(`${made.file.name}  ·  ${made.pages} pages  ·  seed ${made.seed}`);
     } catch (exc) {
       alert(`Could not build the PDF: ${(exc as Error).message}`);
     } finally {
-      setBusy(false);
+      setProgress(null);
     }
   };
 
@@ -176,6 +180,8 @@ export function App() {
       <TrackerView
         tracker={tracker}
         notice={notice}
+        nudge={nudge}
+        onShared={() => setNudge(false)}
         status={status}
         link={engine.shareLink(tracker)}
         onChange={update}
@@ -189,7 +195,7 @@ export function App() {
       history={history}
       form={form}
       onForm={setForm}
-      busy={busy}
+      progress={progress}
       onGenerate={onGenerate}
       onImported={imported}
       onContinue={() => go("tracker")}

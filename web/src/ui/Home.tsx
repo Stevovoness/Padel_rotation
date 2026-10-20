@@ -4,33 +4,38 @@ import type { History } from "../store";
 import type { FormState } from "../form/validate";
 import { ImportError, parsePdfText } from "../import/parsePdf";
 import { readPdfText } from "../import/readPdf";
+import type { Step } from "../generate";
 import { Form } from "./Form";
 import { Header } from "./Header";
+import { Progress } from "./Progress";
 
 interface Props {
   current: Tracker | null;
   history: History;
   form: FormState;
   onForm: (next: FormState) => void;
-  busy: boolean;
+  /** set while a rotation is being built */
+  progress: Step | null;
   onGenerate: () => void;
   onImported: (made: { session: Session; rounds: Round[] }) => boolean;
   onContinue: () => void;
   onDiscard: () => void;
 }
 
-export function Home({ current, history, form, onForm, busy, onGenerate, onImported, onContinue, onDiscard }: Props) {
+export function Home({ current, history, form, onForm, progress, onGenerate, onImported, onContinue, onDiscard }: Props) {
   const input = useRef<HTMLInputElement>(null);
-  const [reading, setReading] = useState(false);
+  const [reading, setReading] = useState<Step | null>(null);
   const [error, setError] = useState("");
 
   const pickFile = async (file: File | undefined) => {
     if (!file) return;
-    setReading(true);
+    setReading({ done: 0, label: "Opening the file…" });
     setError("");
     try {
-      const pages = await readPdfText(await file.arrayBuffer());
-      onImported(parsePdfText(pages));
+      const pages = await readPdfText(await file.arrayBuffer(), setReading);
+      const made = parsePdfText(pages);
+      setReading({ done: 1, label: "Done" });
+      onImported(made);
     } catch (exc) {
       setError(
         exc instanceof ImportError
@@ -38,7 +43,7 @@ export function Home({ current, history, form, onForm, busy, onGenerate, onImpor
           : "Couldn't open that file. Make sure it's the PDF the rotation was shared as.",
       );
     } finally {
-      setReading(false);
+      setReading(null);
       if (input.current) input.current.value = ""; // picking the same file again still fires
     }
   };
@@ -69,7 +74,7 @@ export function Home({ current, history, form, onForm, busy, onGenerate, onImpor
           </section>
         )}
 
-        <Form history={history} form={form} onForm={onForm} busy={busy} onGenerate={onGenerate} />
+        <Form history={history} form={form} onForm={onForm} progress={progress} onGenerate={onGenerate} />
 
         <section class="panel">
           <h2 class="panel-title">Score an existing PDF</h2>
@@ -84,9 +89,13 @@ export function Home({ current, history, form, onForm, busy, onGenerate, onImpor
             class="hidden-input"
             onChange={(e) => pickFile((e.currentTarget as HTMLInputElement).files?.[0])}
           />
-          <button class="btn ghost wide" disabled={reading} onClick={() => input.current?.click()}>
-            {reading ? "Reading the PDF…" : "Choose PDF"}
-          </button>
+          {reading ? (
+            <Progress done={reading.done} label={reading.label} />
+          ) : (
+            <button class="btn ghost wide" onClick={() => input.current?.click()}>
+              Choose PDF
+            </button>
+          )}
           {error && <p class="warn">⚠ {error}</p>}
         </section>
       </main>

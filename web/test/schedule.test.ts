@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Session } from "../src/model";
-import { chooseRounds, generate, playerCost, pyRound } from "../src/sched/schedule";
+import { chooseRounds, generate, generateAsync, playerCost, pyRound } from "../src/sched/schedule";
 import fixture from "./chooseRounds.fixture.json";
 
 function session(players: number, courts: number, minutes = 90): Session {
@@ -69,6 +69,16 @@ describe("generate", () => {
       }
     });
   }
+
+  it("gives the same rotation with progress reporting as without", async () => {
+    const s = session(13, 3);
+    const steps: number[] = [];
+    const slow = await generateAsync(s, 77, (step) => steps.push(step.done));
+    expect(slow.rounds).toEqual(generate(s, 77).rounds);
+    expect(steps.length).toBeGreaterThan(3);
+    expect([...steps].sort((a, b) => a - b)).toEqual(steps); // only ever moves forward
+    expect(Math.max(...steps)).toBeLessThan(1);
+  });
 
   it("rebuilds the same rotation from the same seed", () => {
     const s = session(9, 2);

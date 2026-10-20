@@ -298,8 +298,23 @@ class Arrangement {
   }
 }
 
+/** How far a long job has got: 0-1, and what it's doing. */
+export interface Step {
+  done: number;
+  label: string;
+}
+
+const ATTENDANCE = "Working out who plays when…";
+const SEATING = "Pairing partners and courts…";
+const ATTENDANCE_SHARE = 0.45; // of the scheduling time, roughly
+
 /** Anneal over court seating and team pairings together. */
-function assignCourts(lineups: number[][], courts: number, rng: Rng, restarts = 5): [number[][], number[][]] {
+function* assignCourts(
+  lineups: number[][],
+  courts: number,
+  rng: Rng,
+  restarts = 5,
+): Generator<Step, [number[][], number[][]], void> {
   const nRounds = lineups.length;
   const seatsPerRound = COURT_SIZE * courts;
   const iters = Math.min(9000, Math.max(1500, 600 * nRounds * courts));
@@ -307,6 +322,7 @@ function assignCourts(lineups: number[][], courts: number, rng: Rng, restarts = 
   let bestState: [number[][], number[][]] | null = null;
   let bestCost = Infinity;
   for (let restart = 0; restart < restarts; restart++) {
+    yield { done: ATTENDANCE_SHARE + (1 - ATTENDANCE_SHARE) * (restart / restarts), label: SEATING };
     const arr = new Arrangement(lineups, courts, rng);
     let localState = arr.snapshot();
     let localCost = arr.cost;
@@ -351,7 +367,12 @@ function assignCourts(lineups: number[][], courts: number, rng: Rng, restarts = 
   return bestState!;
 }
 
-export function buildSchedule(session: Session, rng: Rng): Round[] {
+/**
+ * The whole schedule, as a generator that pauses between attempts to report
+ * progress. Run straight through (buildSchedule) or with breaks for the screen
+ * to repaint (buildScheduleAsync) - the same seed gives the same rotation.
+ */
+function* scheduleSteps(session: Session, rng: Rng): Generator<Step, Round[], void> {
   const n = session.players.length;
   const r = session.nRounds;
   const courts = session.courts;
@@ -360,6 +381,7 @@ export function buildSchedule(session: Session, rng: Rng): Round[] {
   let bestAtt: Set<number>[] | null = null;
   let bestAttCost = Infinity;
   for (let attempt = 0; attempt < 8; attempt++) {
+    yield { done: ATTENDANCE_SHARE * (attempt / 8), label: ATTENDANCE };
     const greedy = greedyAttendance(n, r, slots, quotas(n, r, slots, rng), rng);
     const [att, cost] = annealAttendance(greedy, n, r, rng);
     if (cost < bestAttCost) {
@@ -370,7 +392,7 @@ export function buildSchedule(session: Session, rng: Rng): Round[] {
   }
 
   const lineups = bestAtt!.map((s) => [...s].sort((a, b) => a - b));
-  const [seats, splits] = assignCourts(lineups, courts, rng);
+  const [seats, splits] = yield* assignCourts(lineups, courts, rng);
 
   const rounds: Round[] = [];
   for (let i = 0; i < r; i++) {
@@ -391,6 +413,31 @@ export function buildSchedule(session: Session, rng: Rng): Round[] {
     });
   }
   return rounds;
+}
+
+export function buildSchedule(session: Session, rng: Rng): Round[] {
+  const steps = scheduleSteps(session, rng);
+  for (;;) {
+    const next = steps.next();
+    if (next.done) return next.value;
+  }
+}
+
+/** Let the browser paint before carrying on. */
+export const nextFrame = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+export async function buildScheduleAsync(
+  session: Session,
+  rng: Rng,
+  onProgress: (step: Step) => void,
+): Promise<Round[]> {
+  const steps = scheduleSteps(session, rng);
+  for (;;) {
+    const next = steps.next();
+    if (next.done) return next.value;
+    onProgress(next.value);
+    await nextFrame();
+  }
 }
 
 // --------------------------------------------------------------------------
@@ -467,5 +514,16 @@ export function summarise(rounds: Round[], nPlayers: number): Stats {
 export function generate(session: Session, seed: number | null = null): { rounds: Round[]; stats: Stats; seed: number } {
   const used = seed ?? newSeed();
   const rounds = buildSchedule(session, new Rng(used));
+  return { rounds, stats: summarise(rounds, session.players.length), seed: used };
+}
+
+/** generate(), pausing between steps so a progress bar can move. */
+export async function generateAsync(
+  session: Session,
+  seed: number | null,
+  onProgress: (step: Step) => void,
+): Promise<{ rounds: Round[]; stats: Stats; seed: number }> {
+  const used = seed ?? newSeed();
+  const rounds = await buildScheduleAsync(session, new Rng(used), onProgress);
   return { rounds, stats: summarise(rounds, session.players.length), seed: used };
 }
